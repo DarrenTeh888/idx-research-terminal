@@ -1,0 +1,66 @@
+name: Update IDX data
+
+on:
+  schedule:
+    - cron: "*/15 2-9 * * 1-5"
+    - cron: "45 9 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: idx-data
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install yfinance feedparser requests
+
+      - name: Fetch data
+        run: |
+          if [ "${{ github.event.schedule }}" = "45 9 * * 1-5" ]; then
+            python fetch_idx_data.py
+          else
+            python fetch_idx_data.py --quick
+          fi
+
+      - name: Commit if the data actually changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add idx_data.json idx-research-terminal-LIVE.html || true
+          if git diff --staged --quiet; then
+            echo "No change — nothing to commit."
+          else
+            git commit -m "Data refresh $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
+
+  deploy:
+    needs: fetch
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: "."
+      - id: deployment
+        uses: actions/deploy-pages@v4
