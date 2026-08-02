@@ -1,6 +1,10 @@
 name: Update IDX data
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'idx_data.json'
   schedule:
     - cron: "*/15 2-9 * * 1-5"
     - cron: "45 9 * * 1-5"
@@ -40,7 +44,8 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add idx_data.json idx-research-terminal-LIVE.html || true
+          git add idx_data.json
+          git add idx-research-terminal-LIVE.html 2>/dev/null || true
           if git diff --staged --quiet; then
             echo "No change — nothing to commit."
           else
