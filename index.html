@@ -23,6 +23,8 @@
  --vi:#6f4fa8;
 }
 *{box-sizing:border-box;margin:0;padding:0}
+.g>*{min-width:0}
+.sgwrap{overflow-x:auto}
 body{font-family:Inter,system-ui,sans-serif;font-size:13px;line-height:1.45;background:var(--bg);color:var(--tx);height:100vh;overflow:hidden}
 .mo,.n{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .up{color:var(--up)}.dn{color:var(--dn)}.fl{color:var(--t2)}.mu{color:var(--t2)}.fa{color:var(--t3)}.ac{color:var(--ac)}
@@ -305,6 +307,12 @@ const PX={},RET={},MKT={};
     RET[t]=PX[t].map((v,i)=>i?v/PX[t][i-1]-1:0);
   }
   MKT.ff=rm.map((r,i)=>i?Math.round((r*88000+.3*gauss(rng))*1e9):0);
+  /* demo intraday OHL for the latest IHSG session + per-stock traded value/volume today */
+  const c=MKT.IHSG[N-1],o=MKT.IHSG[N-2];
+  APP.ohlc={o:+o.toFixed(1),h:+(Math.max(o,c)*1.004).toFixed(1),l:+(Math.min(o,c)*0.996).toFixed(1)};
+  for(const t of TICKERS){const s=U[t];
+    s.v1=+(s.adv*(0.55+rng()*0.9)).toFixed(1);              // today's traded value, IDR bn
+    s.q1=Math.round(s.v1*1e9/PX[t][N-1]);}                   // today's volume, shares
 })();
 function px(t,i){return PX[t][Math.min(i,LAST)]}
 function chg(t,d){return px(t,LAST)/px(t,Math.max(0,LAST-d))-1}
@@ -386,7 +394,8 @@ function applyRealData(j){
   DATES.length=0;dates.forEach(x=>DATES.push(x));
   N=DATES.length;LAST=N-1;
   for(const tk of keep){PX[tk]=j.prices[tk].slice();RET[tk]=PX[tk].map((v,i)=>i?v/PX[tk][i-1]-1:0);
-    U[tk].p0=PX[tk][PX[tk].length-1]}   /* re-anchor per-share fundamentals to the real price */
+    U[tk].p0=PX[tk][PX[tk].length-1];   /* re-anchor per-share fundamentals to the real price */
+    delete U[tk].v1;delete U[tk].q1}    /* wipe demo intraday figures — only real payload values may fill these */
   for(const tk of dropped){delete PX[tk];delete RET[tk];delete U[tk]}
   TICKERS=keep;
   SECTORS=[...new Set(TICKERS.map(t=>U[t].s))].sort();
@@ -406,6 +415,7 @@ function applyRealData(j){
   if(Array.isArray(j.news)&&j.news.length)NEWS=j.news;
   if(Array.isArray(j.events)&&j.events.length)EVENTS=j.events;
 
+  APP.ohlc=(j.ihsg_ohlc&&j.ihsg_ohlc.h)?j.ihsg_ohlc:null;
   APP.dataMode='LIVE';APP.asof=j.asof||DATES[LAST];
   APP.source=j.source||'idx_data.json';APP.generated=j.generated||'';
   APP.loaded=keep.length;APP.dropped=dropped;
@@ -931,10 +941,7 @@ function renderMarket(){
   const adv=TICKERS.filter(t=>chg(t,1)>0).length, dec=TICKERS.filter(t=>chg(t,1)<0).length;
   const ab50=TICKERS.filter(t=>px(t,LAST)>ma(t,50)).length/TICKERS.length;
   const ab200=TICKERS.filter(t=>px(t,LAST)>ma(t,200)).length/TICKERS.length;
-  const ffCount=MKT.ff?MKT.ff.filter(v=>v!=null).length:0;
-  const ffFull=MKT.ff&&ffCount>=MKT.ff.length-1;
-  const ffSum=n=>{if(!ffCount)return null;let s=0,c=0;
-    for(let i=LAST;i>=1&&c<n;i--){if(MKT.ff[i]!=null){s+=MKT.ff[i];c++}}return c?s:null};
+
   /* sector table */
   const secs=SECTORS.map(s=>{const ts=TICKERS.filter(t=>U[t].s===s);
     const avg=k=>ts.reduce((x,t)=>x+chg(t,k),0)/ts.length;
@@ -950,13 +957,27 @@ function renderMarket(){
  ${stats.map(([n,v,c,y])=>kc(n,fN(v,0),`${sg(c,fPU(c,2))} 1D · ${sg(y,fPU(y,1))} YTD`,'Index level. Daily and year-to-date price return.')).join('')}
  ${kc('Advance / Decline',`<span class="up">${adv}</span> / <span class="dn">${dec}</span>`,`A/D ratio ${(adv/Math.max(1,dec)).toFixed(2)}`,'Advancing vs declining stocks in the research universe today.')}
  ${kc('Above 50D MA',fPU(ab50,0),`Above 200D ${fPU(ab200,0)}`,'Share of universe trading above its 50-day and 200-day moving average. A breadth measure of trend participation.')}
- ${ffCount?kc('Net Foreign 20D',fIDR(ffSum(20)),`5D ${fIDR(ffSum(5))}`,'Cumulative net foreign buying over the trailing window. Market-flow indicator only — it does not identify end investors.',ffSum(20)>=0?'up':'dn'):kc('Net Foreign Flow','<span class="fa" style="font-size:14px">Not available</span>','Needs a licensed feed','Foreign transaction data is published by IDX and is not carried by the free end-of-day source this terminal fetches. Rather than show a demo series beside live prices, it is omitted.')}
+ ${APP.ohlc?kc('IHSG Intraday H / L',`${fN(APP.ohlc.h,0)} / ${fN(APP.ohlc.l,0)}`,`Open ${fN(APP.ohlc.o,0)} · range ${fPU((APP.ohlc.h-APP.ohlc.l)/APP.ohlc.l,2)}`,'High and Low of the latest trading session, with the open. From the daily OHLC of the index — the widest the market swung that day.'):kc('IHSG Intraday H / L','<span class="fa" style="font-size:14px">Awaiting data</span>','Appears after the next fetch','Open/High/Low of the latest session. This field is added by the updated fetch script — run it once (or wait for the next scheduled run) and this card fills in.')}
  ${kc('Universe Median P/E',fX(sectorMedian(null,'pe')||medianAll('pe')),`Median ROE ${fN(medianAll('roe'),1)}%`,'Median across all covered names with positive earnings. Sector composition matters — compare within sector, not across.')}
 </div>
 
 <div class="g" style="grid-template-columns:8fr 4fr;margin-bottom:11px">
  ${pnl('IHSG — '+state.range+' with 50/200-day moving averages','<div class="cbox lg"><canvas id="cIH"></canvas></div>','Trend filter: price vs MA50 vs MA200')}
- ${ffCount?pnl(ffFull?'Net Foreign Flow — 20-day rolling':'Net Foreign Flow — daily (IDX summary, best-effort)','<div class="cbox lg"><canvas id="cFF"></canvas></div>',ffFull?'Flow indicator, not investor identity':ffCount+' sessions fetched · verify against IDX publications'):pnl('Net Foreign Flow',`<div class="pb"><div class="nt" style="line-height:1.8">Foreign transaction data is published by IDX in the daily trading summary and is not carried by the free end-of-day source. It is deliberately left blank in live mode rather than filled with a demo series — a synthetic flow chart sitting beside real prices is exactly the kind of quiet contamination that makes a dashboard untrustworthy.<br><br>To add it: license the IDX daily trading summary, or use a vendor that redistributes it, and populate <b style="color:var(--tx)">MKT.ff</b> through the same adapter.</div></div>`,'Requires licensed data')}
+ ${(()=>{
+   const hasV1=TICKERS.some(t=>U[t].v1>0);
+   const fmtSh=q=>q>=1e9?(q/1e9).toFixed(2)+' B':(q/1e6).toFixed(0)+' M';
+   if(hasV1){
+     const byV=TICKERS.slice().sort((a,b)=>(U[b].v1||0)-(U[a].v1||0)).slice(0,6);
+     const byQ=TICKERS.slice().sort((a,b)=>(U[b].q1||0)-(U[a].q1||0)).slice(0,6);
+     const row=(t,val)=>`<tr class="ck" onclick="openCo('${t}')"><td class="l"><span class="tk">${t}</span> <span class="fa" style="font-size:10px">${U[t].n.slice(0,18)}</span></td><td class="n">${val}</td><td class="n ${cl(chg(t,1))}">${fPU(chg(t,1),1)}</td></tr>`;
+     return `<div class="g" style="gap:11px;align-content:start">
+      ${pnl('Top Value Today',`<div class="pb t"><table class="t"><tbody>${byV.map(t=>row(t,fBn(U[t].v1))).join('')}</tbody></table></div>`,'Traded value, latest session')}
+      ${pnl('Top Volume Today',`<div class="pb t"><table class="t"><tbody>${byQ.map(t=>row(t,fmtSh(U[t].q1)+' shr')).join('')}</tbody></table></div>`,'Shares traded, latest session')}
+     </div>`;
+   }
+   const byA=TICKERS.slice().sort((a,b)=>(U[b].adv||0)-(U[a].adv||0)).slice(0,10);
+   return pnl('Most Traded — 63D Avg Value',`<div class="pb t"><table class="t"><tbody>${byA.map(t=>`<tr class="ck" onclick="openCo('${t}')"><td class="l"><span class="tk">${t}</span> <span class="fa" style="font-size:10px">${U[t].n.slice(0,18)}</span></td><td class="n">${fBn(U[t].adv)}</td><td class="n ${cl(chg(t,1))}">${fPU(chg(t,1),1)}</td></tr>`).join('')}</tbody></table></div>`,"Today's value & volume appear after the next data fetch");
+ })()}
 </div>
 
 <div class="g" style="grid-template-columns:8fr 4fr">
@@ -988,15 +1009,7 @@ function renderMarket(){
     {label:'MA200',data:m200,borderColor:cv('--t3'),borderWidth:1,borderDash:[2,3],tension:.15}]},
     options:{scales:ax(),plugins:{legend:{display:true,position:'top',align:'end',labels:{boxWidth:8,boxHeight:8,padding:9,font:{family:'Inter',size:10}}},
       tooltip:{mode:'index',intersect:false,callbacks:{label:c=>c.parsed.y==null?null:` ${c.dataset.label}: ${fN(c.parsed.y,0)}`}}}}});
-  if(ffCount){const fl=[],fv=[];
-  if(ffFull){
-    for(let i=a;i<=LAST;i++){fl.push(fmtD(DATES[i]));let s=0;for(let k=Math.max(1,i-19);k<=i;k++)s+=MKT.ff[k]||0;fv.push(+(s/1e12).toFixed(2))}
-  }else{
-    for(let i=0;i<=LAST;i++)if(MKT.ff[i]!=null){fl.push(fmtD(DATES[i]));fv.push(+((MKT.ff[i])/1e12).toFixed(3))}
-  }
-  mk('cFF',{type:'line',data:{labels:fl,datasets:[{label:'20D net foreign (IDR T)',data:fv,
-    borderColor:cv('--bl'),borderWidth:1.4,fill:true,backgroundColor:cv('--blbg'),tension:.2}]},
-    options:{scales:ax(),plugins:{tooltip:{callbacks:{label:c=>` ${c.parsed.y>0?'+':''}${c.parsed.y} T IDR`}}}}});}
+
 }
 function medianAll(f){const v=TICKERS.filter(t=>U[t][f]>0).map(t=>U[t][f]).sort((a,b)=>a-b);
   const m=Math.floor(v.length/2);return v.length%2?v[m]:(v[m-1]+v[m])/2}
@@ -1172,7 +1185,7 @@ function finHighlights(tk,a,r,meth){
 function sensGridHTML(tk,a,r,sens,meth,ke,w){
   const axis=meth==='PB'?'Ke \\ term ROE':'WACC \\ g';
   const base=meth==='PB'?ke:w;
-  return `<div class="sg" style="grid-template-columns:96px repeat(5,1fr);margin-top:12px">
+  return `<div class="sgwrap"><div class="sg" style="grid-template-columns:96px repeat(5,1fr);margin-top:12px;min-width:640px">
    <div class="ax">${axis}</div>${sens.gTs.map(g=>`<div class="ax">${g.toFixed(meth==='PB'?1:2)}%</div>`).join('')}
    ${sens.rows.map(row=>`<div class="ax" style="text-align:right;padding-right:8px">${row.w!=null?row.w.toFixed(2)+'%':'&mdash;'}</div>`+
      row.cells.map((c,ci)=>{if(!c)return'<div class="c" style="background:var(--pn2)">&mdash;</div>';
@@ -1180,7 +1193,7 @@ function sensGridHTML(tk,a,r,sens,meth,ke,w){
        const t=Math.max(-1,Math.min(1,u/.5));
        const bg=t>=0?`rgba(53,184,138,${(.10+.42*t).toFixed(2)})`:`rgba(227,105,95,${(.10+.42*-t).toFixed(2)})`;
        return`<div class="c ${isBase?'base':''}" style="background:${bg}"><b>${fN(c.v)}</b><s>${fP(u,0)}</s></div>`}).join('')).join('')}
-  </div>
+  </div></div>
   <div class="nt" style="margin-top:8px">Fair value per share across ${meth==='PB'?'cost of equity and terminal ROE':'discount rate and terminal growth'}. Gold cell is the base case. Read the spread, not the centre.</div>`;
 }
 
@@ -1453,7 +1466,7 @@ function renderPort(){
  </div>
 
  <div class="g" style="gap:11px">
-  ${pc.empty?`<div class="pnl"><div class="pb nt" style="line-height:1.8;font-size:12px">No portfolio yet. Add your real transactions on the left &mdash; ticker, lots, price, date &mdash; and this panel becomes your track record: value, cost basis, P&amp;L, and a time-weighted return chart against the IHSG. ${pc.skipped&&pc.skipped.length?'<br><br><span class="ac">Note: transactions in '+[...new Set(pc.skipped)].join(', ')+' are stored but not priced &mdash; those tickers are not in the loaded dataset. Add them via the Watchlist tab.</span>':''}<br><br>Real small numbers beat fake big ones &mdash; even a two-position Rp 2 juta portfolio with honest history says more in an interview than any simulation.</div></div>`:`
+  ${pc.empty?`<div class="pnl"><div class="pb nt" style="line-height:1.8;font-size:12px">No portfolio yet. Add your real transactions on the left &mdash; ticker, lots, price, date &mdash; and this panel becomes your track record: value, cost basis, P&amp;L, and a time-weighted return chart against the IHSG. ${pc.skipped&&pc.skipped.length?'<br><br><span class="ac">Note: transactions in '+[...new Set(pc.skipped)].join(', ')+' are stored but not priced &mdash; those tickers are not in the loaded dataset. Add them via the Watchlist tab.</span>':''}</div></div>`:`
   <div class="g" style="grid-template-columns:repeat(5,1fr)">
    ${kc('Market value',fIDR(pc.mv),`Cost ${fIDR(pc.cb)}`,'Current value of open positions at last close, versus their average cost including buy fees.')}
    ${kc('Unrealised P&L',fIDR(pc.upnl),fP(pc.cb>0?pc.upnl/pc.cb:0),'Open positions: value minus cost basis.',pc.upnl>=0?'up':'dn')}
@@ -1613,13 +1626,10 @@ function renderNews(){
   </div></div>`).join('')||'<div class="pb nt">Nothing matches this filter.</div>'}
  </div></div>
  <div class="g" style="align-content:start;gap:11px">
-  ${pnl('How to make this live',`<div class="pb"><div class="nt" style="line-height:1.75">
-   A page opened from your own disk cannot fetch news sites directly — browsers block it, and news sites do not permit it.<br><br>
-   The included <b style="color:var(--tx)">fetch_idx_data.py</b> solves this: run it and it writes <b style="color:var(--tx)">idx_data.json</b> next to this file with real prices and headlines. Reload and the badge in the top bar turns green.<br><br>
-   Schedule it once a day after the 15:00 WIB close and the terminal stays current with no further work.
-  </div></div>`,'Adapter design')}
-  ${pnl('Coverage mentions',`<div class="pb t">${Object.keys(COVERAGE).filter(t=>U[t]).map(t=>{const c=NEWS.filter(n=>(n.tk||[]).includes(t)).length;
-    return`<div class="st" style="padding:7px 13px"><span class="k"><span class="tk" onclick="openCo('${t}')">${t}</span></span><span class="n ${c?'':'fa'}">${c} ${c===1?'mention':'mentions'}</span></div>`}).join('')||'<div class="pb nt">No coverage yet.</div>'}</div>`)}
+  ${(()=>{const cv=Object.keys(COVERAGE);
+    if(!cv.length)return pnl('Coverage mentions','<div class="pb nt">Initiate coverage on a few names and this panel counts how often each appears in the news flow — a quick check on whether your book is where the action is.</div>');
+    const counts=cv.map(t=>({t,n:NEWS.filter(x=>x.tk&&x.tk.includes(t)).length})).sort((a,b)=>b.n-a.n);
+    return pnl('Coverage mentions',`<div class="pb t"><table class="t"><tbody>${counts.map(c=>`<tr class="ck" onclick="openCo('${c.t}')"><td class="l"><span class="tk">${c.t}</span></td><td class="n ${c.n?'':'fa'}">${c.n} mention${c.n===1?'':'s'}</td></tr>`).join('')}</tbody></table></div>`,'In the current headline set');})()}
  </div>
 </div>`;
 }
