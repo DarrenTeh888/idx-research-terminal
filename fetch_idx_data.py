@@ -171,7 +171,7 @@ def fetch_prices(tickers):
     dates = [d.strftime("%Y-%m-%d") for d in idx_close.index]
     ihsg = [round(float(v), 2) for v in idx_close.values]
 
-    prices, adv, skipped = {}, {}, []
+    prices, adv, skipped, extras_today = {}, {}, [], {}
     for t in tickers:
         try:
             s = raw[f"{t}.JK"]["Close"].reindex(idx_close.index).ffill().dropna()
@@ -186,19 +186,39 @@ def fetch_prices(tickers):
         filled = s.reindex(idx_close.index).ffill()
         prices[t] = [round(float(v)) for v in filled.values]
         # Real average daily traded value (close × volume), IDR bn — this is
-        # what orders the ticker tape and feeds the liquidity score.
+        # what orders the ticker tape and feeds the liquidity score. Also the
+        # latest session's value (v1, IDR bn) and volume (q1, shares) for the
+        # Top Value / Top Volume panels.
         try:
             vol = raw[f"{t}.JK"]["Volume"].reindex(idx_close.index)
             val = (filled * vol).dropna().tail(ADV_WINDOW)
             if len(val) > 10:
                 adv[t] = round(float(val.mean()) / 1e9, 1)
+            v = vol.dropna()
+            if len(v):
+                q1 = float(v.iloc[-1])
+                extras_today[t] = {"q1": int(q1),
+                                   "v1": round(q1 * prices[t][-1] / 1e9, 1)}
         except Exception:
             pass
+
+    # IHSG intraday Open/High/Low for the latest session
+    ohlc = None
+    try:
+        jk = raw["^JKSE"]
+        o = jk["Open"].dropna(); hi = jk["High"].dropna(); lo = jk["Low"].dropna()
+        if len(o) and len(hi) and len(lo):
+            ohlc = {"o": round(float(o.iloc[-1]), 1),
+                    "h": round(float(hi.iloc[-1]), 1),
+                    "l": round(float(lo.iloc[-1]), 1),
+                    "d": dates[-1]}
+    except Exception:
+        pass
 
     log(f"got {len(prices)} price series over {len(dates)} trading days")
     if skipped:
         log(f"skipped (insufficient history): {', '.join(skipped)}")
-    return dates, ihsg, prices, adv
+    return dates, ihsg, prices, adv, extras_today, ohlc
 
 
 def fetch_fundamentals(tickers, extras):
@@ -520,7 +540,7 @@ def run_once(quick=False):
 
     extras = read_my_stocks()
     tickers = TICKERS + extras
-    dates, ihsg, prices, adv = fetch_prices(tickers)
+    dates, ihsg, prices, adv, extras_today, ohlc = fetch_prices(tickers)
     if quick:
         fundamentals = load_previous()
         if fundamentals:
@@ -532,6 +552,8 @@ def run_once(quick=False):
         fundamentals = fetch_fundamentals(tickers, set(extras))
     for t, v in adv.items():
         fundamentals.setdefault(t, {})["adv"] = v
+    for t, x in extras_today.items():
+        fundamentals.setdefault(t, {}).update(x)
     news = fetch_news(tickers, adv) + fetch_yahoo_news(tickers, adv)
     news.sort(key=lambda x: x["d"], reverse=True)
     news = news[:60]
@@ -549,6 +571,8 @@ def run_once(quick=False):
     }
     if ff:
         payload["ff"] = ff
+    if ohlc:
+        payload["ihsg_ohlc"] = ohlc
 
     with open("idx_data.json", "w", encoding="utf-8") as f:
         json.dump(payload, f, separators=(",", ":"))
