@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths-ignore:
       - 'idx_data.json'
-schedule:
+  schedule:
     - cron: "20 2 * * 1-5"
     - cron: "20 5 * * 1-5"
     - cron: "20 9 * * 1-5"
@@ -32,7 +32,7 @@ jobs:
 
       - name: Install dependencies
         run: pip install yfinance feedparser requests
-        
+
       - name: Fetch data
         run: python fetch_idx_data.py
 
