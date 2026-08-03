@@ -5,9 +5,10 @@ on:
     branches: [main]
     paths-ignore:
       - 'idx_data.json'
-  schedule:
-    - cron: "*/15 2-9 * * 1-5"
-    - cron: "45 9 * * 1-5"
+schedule:
+    - cron: "20 2 * * 1-5"
+    - cron: "20 5 * * 1-5"
+    - cron: "20 9 * * 1-5"
   workflow_dispatch:
 
 permissions:
