@@ -32,14 +32,9 @@ jobs:
 
       - name: Install dependencies
         run: pip install yfinance feedparser requests
-
+        
       - name: Fetch data
-        run: |
-          if [ "${{ github.event.schedule }}" = "45 9 * * 1-5" ]; then
-            python fetch_idx_data.py
-          else
-            python fetch_idx_data.py --quick
-          fi
+        run: python fetch_idx_data.py
 
       - name: Commit if the data actually changed
         run: |
