@@ -9,6 +9,8 @@ on:
     - cron: "20 2 * * 1-5"
     - cron: "20 5 * * 1-5"
     - cron: "20 9 * * 1-5"
+  repository_dispatch:
+    types: [refresh-data]
   workflow_dispatch:
 
 permissions:
